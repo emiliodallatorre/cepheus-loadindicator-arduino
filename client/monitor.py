@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import json
 import os
+import socket
+import struct
 import sys
 import time
 import urllib.error
@@ -32,7 +34,47 @@ load_env_file()
 ARDUINO_HOST = os.environ.get("ARDUINO_HOST", "juno")
 ARDUINO_PORT = int(os.environ.get("ARDUINO_PORT", "5000"))
 METRICS_INTERVAL = float(os.environ.get("METRICS_INTERVAL", "1.0"))
-ENDPOINT_URL = f"http://{ARDUINO_HOST}:{ARDUINO_PORT}/metrics"
+_resolved_host_ip = None
+
+
+def resolve_host(host):
+    # Already an IPv4 address
+    try:
+        socket.inet_aton(host)
+        return host
+    except socket.error:
+        pass
+
+    # Standard system DNS
+    try:
+        return socket.gethostbyname(host)
+    except socket.gaierror:
+        pass
+
+    # Direct Tailscale MagicDNS fallback at 100.100.100.100
+    try:
+        header = struct.pack(">HHHHHH", 0x1234, 0x0100, 1, 0, 0, 0)
+        qname = b"".join(bytes([len(p)]) + p.encode("ascii") for p in host.split(".")) + b"\x00"
+        qtype = struct.pack(">HH", 1, 1)
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(1.5)
+        sock.sendto(header + qname + qtype, ("100.100.100.100", 53))
+        data, _ = sock.recvfrom(512)
+        sock.close()
+        if len(data) >= 16:
+            return socket.inet_ntoa(data[-4:])
+    except Exception:
+        pass
+
+    return host
+
+
+def get_endpoint_url():
+    global _resolved_host_ip
+    if not _resolved_host_ip:
+        _resolved_host_ip = resolve_host(ARDUINO_HOST)
+    return f"http://{_resolved_host_ip}:{ARDUINO_PORT}/metrics"
 
 
 def get_cpu_temperature():
@@ -74,19 +116,28 @@ def collect_metrics():
 
 
 def send_metrics(payload):
+    global _resolved_host_ip
     data = json.dumps(payload).encode("utf-8")
+    url = get_endpoint_url()
     req = urllib.request.Request(
-        ENDPOINT_URL,
+        url,
         data=data,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Host": f"{ARDUINO_HOST}:{ARDUINO_PORT}",
+        },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=3.0) as resp:
-        return resp.status == 200
+    try:
+        with urllib.request.urlopen(req, timeout=3.0) as resp:
+            return resp.status == 200
+    except urllib.error.URLError:
+        _resolved_host_ip = None
+        raise
 
 
 def main():
-    print(f"Monitoring system stats -> target: {ENDPOINT_URL}")
+    print(f"Monitoring system stats -> target: http://{ARDUINO_HOST}:{ARDUINO_PORT}/metrics")
     print(f"Update interval: {METRICS_INTERVAL}s (Ctrl+C to quit)\n")
 
     # Prime psutil CPU percentages
