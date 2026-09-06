@@ -1,87 +1,103 @@
-# Arduino UNO Q Blink Example
+# Cepheus load indicator for Arduino UNO Q
 
-Basic blinking LED app to demonstrate how to create projects for the Arduino UNO Q without App Lab.
+Display laptop CPU per-core load, RAM, and SWAP usage in real time on the Arduino UNO Q built-in 13×8 LED matrix, with connection status feedback on the 4 upper RGB LEDs.
 
-> ...because I want to develop on a local computer where I have access to my favorite tools, like VS Code, IntelliSense, Copilot, etc.
+## Project structure
 
-## Project Structure
-
-UNO Q projects are a little more involved than traditional Arduino (MCU only) projects. They usually combine a Python script for running heavy processing loads (e.g. USB, networking, AI) on Debian Linux on the MPU and a lightweight Arduino sketch that runs on the MCU (for e.g. pin control). This example project contains the following structure:
-
-```sh
-q_blink
-├── README.md
-├── app.yaml
-├── python
-│   ├── main.py
-│   └── requirements.txt
-└── sketch
-    ├── sketch.ino
-    └── sketch.yaml
+```text
+.
+├── app.yaml               # App Lab manifest exposing port 5000
+├── python/
+│   └── main.py            # MPU HTTP server and Bridge dispatcher
+├── sketch/
+│   ├── sketch.ino         # MCU firmware driving LED matrix and status LEDs
+│   └── sketch.yaml        # Zephyr board profile and libraries
+├── client/
+│   ├── monitor.py         # Laptop metrics collector (psutil)
+│   ├── Dockerfile         # Lightweight Python container
+│   ├── requirements.txt   # Client Python dependencies
+│   └── .dockerignore
+├── docker-compose.yml     # Client Docker compose configuration
+├── Makefile               # App deployment and client container controls
+└── .env                   # Host and port configuration
 ```
 
-Let's take a look at each of the files:
- * `README.md` is not required, but it's a good thing to have to describe your project and how to run it.
- * `app.yaml` is the App Lab app manifest for the Linux side. It ties the Python entry point (your `python/main.py`), any App Lab “Bricks”/services, and the linkage to the MCU sketch so the App Lab/CLI can build, deploy, and orchestrate both halves together on the UNO Q.
- * `python/main.py` is the Python sketch that runs on the MPU.
- * `python/requirements.txt` lists the Python libraries required for the Python sketch. When you run your project, these libraries will automatically be downloaded and installed.
- * `sketch/sketch.ino` is the Arduino sketch that runs on the MCU.
- * `sketch/skecth.yaml` is the Arduino CLI sketch project file. It declares the board (FQBN), required core/platform versions, libraries, and (optionally) multiple build profiles for reproducible MCU builds.
+## Display layout
 
-## Required software
+### LED matrix (13×8)
 
-I highly recommend following the directions [here](https://docs.arduino.cc/software/app-lab/tutorials/getting-started/) to install *App Lab* and run it at least once to configure the UNO Q and update the packages/firmware. 
+* Columns 0–7: CPU logical cores (1-pixel-wide vertical bars)
+* Column 8: blank spacer column
+* Columns 9–10: RAM usage (2-pixel-wide bar)
+* Column 11: blank spacer column
+* Column 12: SWAP usage (1-pixel-wide bar, lit at least 1 pixel when SWAP > 0%)
 
-Feel free to look through [these docs](https://docs.arduino.cc/software/app-lab/tutorials/cli/) to see how the CLI commands work, but I'll guide you through the process of sending this project to the UNO Q and running it.
+### Upper RGB status LEDs
 
-If you are connecting other devices (e.g. webcam) to the UNO Q through a USB hub, you might not be able to communicate to it from your computer via USB (i.e. *adb* might not work). As a result, I recommend using *rsync* to send files from your host computer to the UNO Q. If you're on Windows, I recommend installing and using [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) to make life easier (i.e. you have access to `ssh` and `scp` commands).
+* Green: message received (flashes for 350 ms on each packet)
+* Yellow: waiting for next message (healthy connection)
+* Red: disconnected or idle (no packet received for 10 seconds or waiting for first connection)
 
-## Initialize Project
+## Configuration
 
-Open a terminal (to be used as your SSH connection to the UNO Q). Enter the following (replace `<UNO_Q_IP_ADDRESS>` with the IP address of your UNO Q board):
+Default environment values are loaded from `.env`:
 
-```sh
-ssh arduino@<UNO_Q_IP_ADDRESS>
+```env
+ARDUINO_HOST=juno
+ARDUINO_PORT=5000
+METRICS_INTERVAL=1.0
 ```
 
-Enter `yes` if asked to accept the SSH key fingerprint. Enter your UNO Q password.
+`monitor.py` automatically falls back to direct Tailscale MagicDNS resolution (`100.100.100.100`) if bare hostnames cannot be resolved by standard host DNS.
 
-In that terminal, create a new project folder on the UNO Q:
+## Deploying to the Arduino UNO Q
 
-```sh
-mkdir -p ~/ArduinoApps/q_blink
-```
+Ensure SSH access to your board is configured (e.g. `arduino@juno`).
 
-## Push Code
+### Makefile targets
 
-From your computer, open up a new terminal, navigate into this directory, and run the following (replace `<UNO_Q_IP_ADDRESS>` with the IP address of your UNO Q board):
+* `make deploy`
+  Stops any running app instance, syncs files, and starts the container with live logs
 
-```sh
-scp -r * arduino@<UNO_Q_IP_ADDRESS>:~/ArduinoApps/q_blink/
-```
+* `make start`
+  Starts the app and prints container logs
 
-> **NOTE**: If you're feeling feisty, you could try installing `rsync` on your local machine and on the UNO Q to just update changes. You could also configure `git` on the UNO Q to pull changes from a remote repo. But I'll stick to copying everything with `scp` for now.
+* `make stop`
+  Stops the app on the board
 
-## Run the App
+* `make logs`
+  Fetches recent container logs
 
-Now, we can use the Arduino App CLI to run and control apps. To start your program, run the following in the SSH terminal:
+* `make logs-follow`
+  Follows container logs in real time
 
-```sh
-arduino-app-cli app start ~/ArduinoApps/q_blink
-```
+* `make status`
+  Lists current app state on the board
 
-Note that Python code prints to logs rather than the console (as the app is run in a container on the UNO Q). To view the logs, run:
+## Running the laptop client
 
-```sh
-arduino-app-cli app logs ~/ArduinoApps/q_blink
-```
+### Running natively
 
-Your app runs in the background. You can stop it with:
+1. Install dependencies:
+   ```bash
+   pip install -r client/requirements.txt
+   ```
+2. Start the monitor:
+   ```bash
+   python3 client/monitor.py
+   ```
 
-```sh
-arduino-app-cli app stop ~/ArduinoApps/q_blink
-```
+### Running with Docker
 
-## VS Code
+* `make client-build`
+  Builds the slim client container (`python:3.12-slim`)
 
-If you want to easily browse files on the UNO Q, I recommend installing [VS Code](https://code.visualstudio.com/) and the [Remote-SSH extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-ssh). Click on the *Connection* icon in the bottom-left of VS Code and select **Connect to Host...**. Enter `arduino@<UNO_Q_IP_ADDRESS`, select **Linux** when asked about the server's OS, and enter your UNO Q password. You can then select *File > Open Folder...* to get to your *~/ArduinoApps* directory.
+* `make client-run`
+  Starts the client in the background with host network and PID access
+
+* `make client-logs`
+  Streams live logs from the client container
+
+* `make client-stop`
+  Stops the client container
+
