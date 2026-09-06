@@ -1,22 +1,31 @@
-TARGET_HOST ?= arduino@juno
+-include .env
+
+TARGET_HOST ?= arduino@$(or $(ARDUINO_HOST),juno)
 PROJECT_NAME ?= $(notdir $(CURDIR))
 REMOTE_DIR = ~/ArduinoApps/$(PROJECT_NAME)
 
-.PHONY: sync start deploy stop logs restart
+.PHONY: sync start deploy stop logs logs-follow status restart
 
 sync:
 	ssh $(TARGET_HOST) "mkdir -p $(REMOTE_DIR)"
 	scp -r app.yaml python sketch $(TARGET_HOST):$(REMOTE_DIR)/
 
 start:
-	ssh $(TARGET_HOST) "arduino-app-cli app start $(REMOTE_DIR)"
+	ssh $(TARGET_HOST) "arduino-app-cli app start $(REMOTE_DIR) && sleep 1 && arduino-app-cli app logs $(REMOTE_DIR)"
 
 stop:
-	ssh $(TARGET_HOST) "arduino-app-cli app stop $(REMOTE_DIR)"
+	-ssh $(TARGET_HOST) "arduino-app-cli app stop $(REMOTE_DIR) || true"
 
 restart: stop start
+
+status:
+	ssh $(TARGET_HOST) "arduino-app-cli app list"
 
 logs:
 	ssh $(TARGET_HOST) "arduino-app-cli app logs $(REMOTE_DIR)"
 
-deploy: sync start
+logs-follow:
+	ssh -t $(TARGET_HOST) "arduino-app-cli app logs -f $(REMOTE_DIR)"
+
+deploy: stop sync start
+
