@@ -1,0 +1,11 @@
+services:
+  monitor:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: cepheus-monitor
+    restart: unless-stopped
+    pid: host
+    network_mode: host
+    env_file:
+      - .env

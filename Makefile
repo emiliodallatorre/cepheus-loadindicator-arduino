@@ -29,3 +29,17 @@ logs-follow:
 
 deploy: stop sync start
 
+.PHONY: client-build client-run client-stop client-logs
+
+client-build:
+	docker compose build monitor
+
+client-run:
+	docker compose up -d monitor
+
+client-stop:
+	docker compose down
+
+client-logs:
+	docker compose logs -f monitor
+
