@@ -7,5 +7,7 @@ services:
     restart: unless-stopped
     pid: host
     network_mode: host
+    volumes:
+      - /etc/resolv.conf:/etc/resolv.conf:ro
     env_file:
       - .env
