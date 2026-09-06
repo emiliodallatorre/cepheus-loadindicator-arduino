@@ -12,6 +12,18 @@ ArduinoLEDMatrix matrix;
 String pending_bars = "";
 volatile bool has_new_bars = false;
 
+void set_status_leds(bool r, bool g, bool b) {
+    // LED 3 (PWM channels)
+    analogWrite(LED3_R, r ? 255 : 0);
+    analogWrite(LED3_G, g ? 255 : 0);
+    analogWrite(LED3_B, b ? 255 : 0);
+
+    // LED 4 (active low digital channels)
+    digitalWrite(LED4_R, r ? LOW : HIGH);
+    digitalWrite(LED4_G, g ? LOW : HIGH);
+    digitalWrite(LED4_B, b ? LOW : HIGH);
+}
+
 void render_bars(const String& bars) {
     uint8_t frame[ROWS][COLS] = {0};
     int len = bars.length();
@@ -35,9 +47,17 @@ void set_core_bars(String bars) {
 }
 
 void setup() {
+    pinMode(LED4_R, OUTPUT);
+    pinMode(LED4_G, OUTPUT);
+    pinMode(LED4_B, OUTPUT);
+
+    // Initial status: Red (waiting for connection)
+    set_status_leds(true, false, false);
+
     matrix.begin();
     Bridge.begin();
     Bridge.provide("set_core_bars", set_core_bars);
+    Bridge.provide("set_status_leds", set_status_leds);
 }
 
 void loop() {

@@ -14,8 +14,17 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from queue import Queue, Empty
 
 try:
-    from arduino.app_utils import App, Bridge
+    from arduino.app_utils import App, Bridge, Leds
 except ImportError:
+    class MockLeds:
+        @staticmethod
+        def set_led1_color(r, g, b):
+            pass
+
+        @staticmethod
+        def set_led2_color(r, g, b):
+            pass
+
     class MockBridge:
         @staticmethod
         def call(method, *args):
@@ -36,6 +45,7 @@ except ImportError:
 
     Bridge = MockBridge()
     App = MockApp()
+    Leds = MockLeds()
 
 PORT = int(os.environ.get("PORT", "5000"))
 NUM_COLS = 13
@@ -49,6 +59,23 @@ latest_metrics = {
     "cpu_temp": 0.0,
     "last_updated": 0,
 }
+
+last_message_time = 0.0
+green_until = 0.0
+last_applied_color = None
+
+
+def set_upper_leds(r: bool, g: bool, b: bool):
+    try:
+        Leds.set_led1_color(r, g, b)
+        Leds.set_led2_color(r, g, b)
+    except Exception:
+        pass
+
+    try:
+        Bridge.call("set_status_leds", r, g, b)
+    except Exception:
+        pass
 
 
 class MetricsHandler(BaseHTTPRequestHandler):
@@ -68,13 +95,17 @@ class MetricsHandler(BaseHTTPRequestHandler):
             swap = float(payload.get("swap", 0.0))
             cpu_temp = float(payload.get("cpu_temp", 0.0))
 
-            global latest_metrics
+            global latest_metrics, last_message_time, green_until
+            now = time.time()
+            last_message_time = now
+            green_until = now + 0.35
+
             latest_metrics = {
                 "cpu_cores": cpu_cores,
                 "ram": ram,
                 "swap": swap,
                 "cpu_temp": cpu_temp,
-                "last_updated": time.time(),
+                "last_updated": now,
             }
 
             # Total 13 columns:
@@ -138,6 +169,24 @@ class MetricsHandler(BaseHTTPRequestHandler):
 
 
 def loop():
+    global last_applied_color
+    now = time.time()
+
+    # Determine status color:
+    # - Red: not receiving since >= 10s (or never received)
+    # - Green: received message within last 350ms
+    # - Yellow: waiting for next message
+    if last_message_time == 0.0 or (now - last_message_time) >= 10.0:
+        current_color = (True, False, False)
+    elif now < green_until:
+        current_color = (False, True, False)
+    else:
+        current_color = (True, True, False)
+
+    if current_color != last_applied_color:
+        last_applied_color = current_color
+        set_upper_leds(*current_color)
+
     try:
         bars_str = update_queue.get(timeout=0.05)
         Bridge.call("set_core_bars", bars_str)
