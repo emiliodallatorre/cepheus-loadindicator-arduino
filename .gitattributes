@@ -1,0 +1,10 @@
+# Enforce LF line endings for code and config files
+*.py     text eol=lf
+*.sh     text eol=lf
+*.yaml   text eol=lf
+*.yml    text eol=lf
+*.ino    text eol=lf
+*.cpp    text eol=lf
+*.h      text eol=lf
+*.md     text eol=lf
+*.txt    text eol=lf

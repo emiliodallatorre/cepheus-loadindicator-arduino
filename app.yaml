@@ -1,0 +1,10 @@
+name: LED Control Demo
+description: "Simple LED control app demonstrating Bridge communication between Python (MPU) and Arduino (MCU)"
+icon: 🔴
+version: "1.0.0"
+
+# Optional: Define any exposed ports (not needed for this simple example)
+ports: []
+
+# Optional: Define bricks if using pre-built components
+bricks: []
